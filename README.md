@@ -46,7 +46,7 @@ We built a lightweight web dashboard using [Streamlit](https://streamlit.io) to 
 - **Future predictions** section placeholder for ML model integration
 
 ### 🔗 Try it on Streamlit Cloud
-> [Live App Link](https://malariashield.streamlit.app)
+> [Live App Link](https://grp39-malaria-pred.streamlit.app/)
 
 ---
 

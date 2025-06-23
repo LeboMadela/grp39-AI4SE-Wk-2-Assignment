@@ -61,6 +61,7 @@ We built a lightweight web dashboard using [Streamlit](https://streamlit.io) to 
 | `malaria_africa_cleaned.csv`  | Final cleaned dataset used in dashboard |
 | `app.py`                      | Streamlit app script |
 | `README.md`                   | Project documentation (this file) |
+| `model_compatible.pkl`        | Trained model
 
 ---
 

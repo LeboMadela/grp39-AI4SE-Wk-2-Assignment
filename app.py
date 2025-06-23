@@ -1,131 +1,193 @@
- # app.py 
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns 
-from sklearn.linear_model import LinearRegression
 import numpy as np
+import joblib
+import plotly.express as px
+import plotly.graph_objects as go
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-uploaded_file = st.sidebar.file_uploader(" Upload your own CSV file", type=["csv"])
+# -------------------------------
+# App Settings
+# -------------------------------
+st.set_page_config(page_title="Malaria Predictor Dashboard", layout="wide")
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #eef5f9;
+    }
+    .stRadio > div {
+        background-color: #dceefa;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .block-container {
+        padding-top: 1rem;
+        background-color: #fdf9fc;
+        border-radius: 10px;
+        box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    }
+    .stButton > button {
+        background-color: #1f77b4;
+        color: white;
+        border-radius: 10px;
+    }
+    .stButton > button:hover {
+        background-color: #105e8b;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Load Data
+st.title("🦟 Malaria Case Predictor")
+
+# -------------------------------
+# Load Data and Model
+# -------------------------------
 @st.cache_data
 def load_data():
-    return pd.read_csv("malaria_africa_cleaned.csv")
+    df = pd.read_csv("malaria_africa_cleaned.csv")
+    df["Year"] = df["Year"].astype(int)
+    return df
+
+def load_model():
+    return joblib.load("model_compatible.pkl")
 
 df = load_data()
+model = load_model()
 
-st.title("🛡️ MalariaShield Dashboard")
-st.subheader("Predicting and Visualizing Malaria Cases in Africa (SDG 3)")
+# Add ISO Alpha-3 codes to the dataframe for mapping
+import pycountry
 
-# Sidebar Filters
-country_list = sorted(df["Country"].unique())
-selected_country = st.sidebar.selectbox("Select Country", country_list)
-year_range = st.sidebar.slider("Select Year Range", 
-                               int(df["Year"].min()), 
-                               int(df["Year"].max()), 
-                               (2010, 2017))
+def get_iso_alpha(country_name):
+    try:
+        return pycountry.countries.lookup(country_name).alpha_3
+    except LookupError:
+        return None
 
-# Filter Data
-filtered_df = df[(df["Country"] == selected_country) & 
-                 (df["Year"].between(year_range[0], year_range[1]))]
+df["iso_alpha"] = df["Country"].apply(get_iso_alpha)
 
-# Show Summary Stats
-st.write(f"### 📊 Malaria Data for {selected_country} ({year_range[0]} - {year_range[1]})")
-st.dataframe(filtered_df)
+# -------------------------------
+# Session State for Tabs
+# -------------------------------
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "📊 Dashboard"
 
-# Line Plot: Estimated vs Reported Cases
-st.write("#### 📈 Estimated vs Reported Malaria Cases Over Time")
-fig, ax = plt.subplots()
-ax.plot(filtered_df["Year"], filtered_df["No. of cases_median"], label="Estimated Median Cases", marker="o")
-ax.plot(filtered_df["Year"], filtered_df["No. of cases_reported"], label="Reported Cases", marker="x")
-ax.set_xlabel("Year")
-ax.set_ylabel("Cases")
-ax.set_title(f"Malaria Cases Trend in {selected_country}")
-ax.legend()
-st.pyplot(fig)
+tab_labels = ["📊 Dashboard", "🎯 Try Prediction", "📈 Trends & Insights"]
+selected_tab = st.radio("Navigation", tab_labels, index=tab_labels.index(st.session_state.active_tab), horizontal=True)
+st.session_state.active_tab = selected_tab
 
-# Bar Chart: Deaths
-st.write("#### 💀 Estimated vs Reported Deaths")
-fig2, ax2 = plt.subplots()
-width = 0.35
-x = filtered_df["Year"]
-ax2.bar(x - width/2, filtered_df["No. of deaths_median"], width, label="Estimated Median Deaths")
-ax2.bar(x + width/2, filtered_df["No. of deaths_reported"], width, label="Reported Deaths")
-ax2.set_xlabel("Year")
-ax2.set_ylabel("Deaths")
-ax2.set_title(f"Malaria Deaths in {selected_country}")
-ax2.legend()
-st.pyplot(fig2)
+# Setup target and features
+target = "No. of cases_median"
+numeric_cols = [col for col in df.select_dtypes(include=np.number).columns if col != target]
 
-# Pie Chart: Shpwcasing the Latest Year Reported vs Estimated
-st.write("#### 🧬 Reported vs Estimated Cases Distribution (Latest Year)")
-latest_year = filtered_df["Year"].max()
-latest_data = filtered_df[filtered_df["Year"] == latest_year]
-if not latest_data.empty:
-    values = [latest_data["No. of cases_reported"].values[0], latest_data["No. of cases_median"].values[0]]
-    labels = ['Reported', 'Estimated']
-    fig4, ax4 = plt.subplots()
-    ax4.pie(values, labels=labels, autopct='%1.1f%%', startangle=90, colors=['#66b3ff', '#99ff99'])
-    ax4.axis('equal')
-    st.pyplot(fig4)
+# -------------------------------
+# Dashboard Tab
+# -------------------------------
+if selected_tab == "📊 Dashboard":
+    st.subheader("🔍 Overview")
+    col1, col2, col3 = st.columns(3)
 
-#Stacked Bar Chart: Cases + Deaths
-st.write("#### 🧱 Combined Cases and Deaths (Stacked Bar)")
-fig5, ax5 = plt.subplots()
-ax5.bar(filtered_df["Year"], filtered_df["No. of cases_reported"], label='Cases Reported', color='skyblue')
-ax5.bar(filtered_df["Year"], filtered_df["No. of deaths_reported"], bottom=filtered_df["No. of cases_reported"], 
-        label='Deaths Reported', color='salmon')
-ax5.set_xlabel("Year")
-ax5.set_ylabel("Count")
-ax5.set_title("Reported Cases and Deaths (Stacked)")
-ax5.legend()
-st.pyplot(fig5)
+    with col1:
+        total_cases = int(df["No. of cases_median"].sum())
+        st.metric("Total Malaria Cases (Median)", f"{total_cases:,}")
 
-st.write("#### 🔥 Correlation Heatmap (Numerical Features)")
-fig6, ax6 = plt.subplots()
-sns.heatmap(filtered_df.select_dtypes(include='number').corr(), annot=True, cmap="YlGnBu", ax=ax6)
-st.pyplot(fig6)
+    with col2:
+        latest_year = df["Year"].max()
+        st.metric("Latest Year in Data", latest_year)
 
-# 🔮 ML Predictions
-st.markdown("#### 🔮 Predict Future Malaria Cases")
-if len(filtered_df) >= 5:
-    model = LinearRegression()
-    X = filtered_df[["Year"]]
-    y = filtered_df["No. of cases_reported"]
+    with col3:
+        total_deaths = int(df["No. of deaths_median"].sum())
+        st.metric("Total Deaths (Median)", f"{total_deaths:,}")
 
-    model.fit(X, y)
+    st.markdown("---")
+    st.subheader("🌍 Top 10 Countries by Cases in Latest Year")
+    latest_df = df[df["Year"] == latest_year].copy()
+    latest_df["No. of cases_median"] = pd.to_numeric(latest_df["No. of cases_median"], errors="coerce")
+    top10 = latest_df.groupby("Country")["No. of cases_median"].sum().sort_values(ascending=False).head(10)
+    fig = px.bar(top10, x=top10.values, y=top10.index, orientation='h', labels={'x': 'Cases'}, title="Top 10 Countries")
+    st.plotly_chart(fig, use_container_width=True)
 
-    future_years = np.array(range(year_range[1] + 1, year_range[1] + 6)).reshape(-1, 1)
-    future_preds = model.predict(future_years)
+    st.subheader("🗺️ Malaria Map (Latest Year)")
+    if "iso_alpha" not in df.columns:
+        import pycountry
+        country_map = {country.name: country.alpha_3 for country in pycountry.countries}
+        df["iso_alpha"] = df["Country"].map(country_map)
+    map_df = latest_df.dropna(subset=["iso_alpha"])
+    map_fig = px.choropleth(map_df,
+                            locations="iso_alpha",
+                            color="No. of cases_median",
+                            hover_name="Country",
+                            color_continuous_scale="Reds",
+                            title="Malaria Cases by Country (Choropleth Map)")
+    st.plotly_chart(map_fig, use_container_width=True)
 
-    pred_df = pd.DataFrame({
-        "Year": future_years.flatten(),
-        "Predicted Reported Cases": future_preds.astype(int)
-    })
+# -------------------------------
+# Try Prediction Tab
+# -------------------------------
+elif selected_tab == "🎯 Try Prediction":
+    st.subheader("🎯 Predict Malaria Cases")
 
-    st.write("##### 📅 Predicted Reported Malaria Cases (Next 5 Years)")
-    st.dataframe(pred_df)
+    input_data = {}
+    with st.form("predict_form"):
+        for col in numeric_cols:
+            if col == "Year":
+                min_val = int(df[col].min())
+                max_val = int(df[col].max())
+                mean_val = int(df[col].mean())
+                input_data[col] = st.slider(col, min_val, max_val, mean_val, step=1)
+            else:
+                min_val = float(df[col].min())
+                max_val = float(df[col].max())
+                mean_val = float(df[col].mean())
+                input_data[col] = st.slider(col, min_val, max_val, mean_val)
+        submitted = st.form_submit_button("Predict")
 
-    # Combine for plot
-    combined_years = pd.concat([X, pd.DataFrame(future_years, columns=["Year"])])
-    combined_cases = pd.concat([y, pd.Series(future_preds, name="No. of cases_reported")])
+    if submitted:
+        input_df = pd.DataFrame([input_data])
+        prediction = model.predict(input_df)[0]
+        st.session_state.predicted_result = prediction
 
-    fig7, ax7 = plt.subplots()
-    ax7.plot(combined_years, combined_cases, label="Predicted Trend", linestyle="--", color="green")
-    ax7.scatter(X, y, label="Historical Reported Cases", color="blue")
-    ax7.set_xlabel("Year")
-    ax7.set_ylabel("Reported Cases")
-    ax7.set_title("Reported Malaria Cases + Future Predictions")
-    ax7.legend()
-    st.pyplot(fig7)
-else:
-    st.warning("Not enough historical data to build a prediction model. Need at least 5 years.")
+    if "predicted_result" in st.session_state:
+        st.success(f"🧪 Predicted malaria cases: {st.session_state.predicted_result:,.0f}")
 
-# Future Work Section
-st.markdown("#### 🔮 Future Predictions")
-st.info("Model predictions will be added in a future version using machine learning. This version focuses on historical analysis.")
+# -------------------------------
+# Trends & Insights Tab
+# -------------------------------
+elif selected_tab == "📈 Trends & Insights":
+    st.subheader("📈 Malaria Trends Over Time")
 
-st.markdown("---")
-st.markdown("✅ *Dashboard built for PLP AI4SE Week 2 — MalariaShield by Group 39*")
+    country = st.selectbox("Choose a country:", sorted(df["Country"].unique()))
+    country_df = df[df["Country"] == country].copy()
 
+    if country_df.empty:
+        st.warning("No data found for this country.")
+    else:
+        line_fig = px.line(country_df, x="Year", y="No. of cases_median", markers=True,
+                           title=f"Yearly Malaria Cases (Median) for {country}")
+        st.plotly_chart(line_fig, use_container_width=True)
+
+        # Pie chart of cases vs deaths
+        total_cases = country_df["No. of cases_median"].sum()
+        total_deaths = country_df["No. of deaths_median"].sum()
+
+        pie_data = pd.DataFrame({
+            "Type": ["Cases", "Deaths"],
+            "Count": [total_cases, total_deaths]
+        })
+        pie_fig = px.pie(pie_data, values="Count", names="Type", title=f"Cases vs Deaths in {country}",
+                         color_discrete_sequence=["#2ca02c", "#d62728"])
+        st.plotly_chart(pie_fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("📊 Model Performance")
+    X = df[numeric_cols]
+    y = df[target]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    y_pred = model.predict(X_test)
+
+    st.write("**Evaluation Metrics:**")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("MAE", f"{mean_absolute_error(y_test, y_pred):,.0f}")
+    col2.metric("RMSE", f"{np.sqrt(mean_squared_error(y_test, y_pred)):.0f}")
+    col3.metric("R² Score", f"{r2_score(y_test, y_pred):.4f}")
+    col4.metric("Data Points", len(df))
